@@ -41,7 +41,7 @@ import org.apache.hadoop.util.ReflectionUtils
 import org.apache.spark._
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.deploy.SparkHadoopUtil
+import org.apache.spark.deploy.{SparkHadoopUtil, SparkS3Util}
 import org.apache.spark.executor.DataReadMethod
 import org.apache.spark.rdd.HadoopRDD.HadoopMapPartitionsWithSplitRDD
 import org.apache.spark.util.{SerializableConfiguration, ShutdownHookManager, NextIterator, Utils}
@@ -200,11 +200,16 @@ class HadoopRDD[K, V](
     val jobConf = getJobConf()
     // add the credentials here as this can be called before SparkContext initialized
     SparkHadoopUtil.get.addCredentials(jobConf)
-    val inputFormat = getInputFormat(jobConf)
-    if (inputFormat.isInstanceOf[Configurable]) {
-      inputFormat.asInstanceOf[Configurable].setConf(jobConf)
-    }
-    val inputSplits = inputFormat.getSplits(jobConf, minPartitions)
+     val inputSplits =
+      if (SparkS3Util.s3BulkListingEnabled(jobConf)) {
+        SparkS3Util.getSplits(jobConf, minPartitions)
+      } else {
+        val inputFormat = getInputFormat(jobConf)
+        if (inputFormat.isInstanceOf[Configurable]) {
+          inputFormat.asInstanceOf[Configurable].setConf(jobConf)
+        }
+        inputFormat.getSplits(jobConf, minPartitions)
+      }
     val array = new Array[Partition](inputSplits.size)
     for (i <- 0 until inputSplits.size) {
       array(i) = new HadoopPartition(id, i, inputSplits(i))
